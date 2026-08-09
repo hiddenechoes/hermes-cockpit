@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hermes Cockpit</title>
+    <meta
+      name="description"
+      content="A lightweight cockpit shell for Hermes workflows."
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="main.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Hermes cockpit</p>
+          <h1>Workflow control surface</h1>
+        </div>
+        <div class="topbar-status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Live shell</span>
+        </div>
+      </header>
+
+      <main class="dashboard" aria-label="Hermes cockpit dashboard">
+        <section class="panel hero" aria-labelledby="hero-title">
+          <div>
+            <p class="panel-label">Overview</p>
+            <h2 id="hero-title">Keep the next Hermes action in view.</h2>
+            <p class="panel-copy">
+              This first-pass cockpit is intentionally framework-free so it can
+              run anywhere and stay easy to extend.
+            </p>
+          </div>
+          <div class="hero-meta">
+            <div>
+              <span class="meta-label">Mode</span>
+              <strong>Planning</strong>
+            </div>
+            <div>
+              <span class="meta-label">Updated</span>
+              <strong id="last-updated">--</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid">
+          <article class="panel">
+            <p class="panel-label">Status</p>
+            <h2>Hermes status panel</h2>
+            <ul class="status-list" id="status-list" aria-live="polite"></ul>
+          </article>
+
+          <article class="panel">
+            <p class="panel-label">Shortcuts</p>
+            <h2>Common actions</h2>
+            <div class="action-list" id="action-list"></div>
+          </article>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

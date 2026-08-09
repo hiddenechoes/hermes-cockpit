@@ -2,10 +2,10 @@
 
 ## MVP foundation
 
-- Choose the app framework and layout system
-- Define the core Hermes cockpit navigation and state model
-- Add authentication and environment configuration
-- Establish API integration patterns
+- Use the current static HTML/CSS/JS shell as the starting point
+- Keep the app framework-free until the control surface needs more structure
+- Layer in Hermes data wiring behind the existing status panel and shortcuts
+- Add a small client-side state model when the first live integrations land
 
 ## First features
 
@@ -16,5 +16,5 @@
 ## Quality goals
 
 - Automated tests for critical flows
-- CI checks for formatting, linting, and build health
+- CI checks for shell structure, syntax, and build health
 - Clear contributor onboarding and release notes

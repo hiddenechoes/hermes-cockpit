@@ -6,13 +6,13 @@ on:
   pull_request:
 
 jobs:
-  scaffold-check:
+  shell-check:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Verify scaffold files
+      - name: Verify cockpit shell files
         run: |
           set -euo pipefail
           test -f README.md
@@ -21,4 +21,9 @@ jobs:
           test -f SECURITY.md
           test -f .gitignore
           test -f docs/roadmap.md
-          test -d src
+          test -f src/index.html
+          test -f src/main.js
+          test -f src/styles.css
+
+      - name: Check JavaScript syntax
+        run: node --check src/main.js

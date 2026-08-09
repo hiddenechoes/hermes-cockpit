@@ -11,7 +11,11 @@ Thanks for helping improve Hermes cockpit.
 
 ## Local setup
 
-This repository is currently a scaffold. Add the project dependencies and commands once the implementation stack is chosen.
+Run the shell locally with:
+
+```bash
+python3 -m http.server 8000 --directory src
+```
 
 ## Code review expectations
 
