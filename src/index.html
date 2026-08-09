@@ -4,62 +4,51 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hermes Cockpit</title>
-    <meta
-      name="description"
-      content="A lightweight cockpit shell for Hermes workflows."
-    />
+    <meta name="description" content="A lightweight cockpit shell for Hermes workflows." />
     <link rel="stylesheet" href="styles.css" />
     <script defer src="main.js"></script>
   </head>
   <body>
-    <div class="app-shell">
+    <main class="app">
       <header class="topbar">
         <div>
           <p class="eyebrow">Hermes cockpit</p>
           <h1>Workflow control surface</h1>
         </div>
-        <div class="topbar-status">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span>Live shell</span>
+        <div class="topbar-actions">
+          <span class="state-pill"><span id="live-dot" class="dot"></span><span id="connection-state">Connecting…</span></span>
+          <button id="refresh-button" class="refresh" type="button">Refresh now</button>
         </div>
       </header>
 
-      <main class="dashboard" aria-label="Hermes cockpit dashboard">
-        <section class="panel hero" aria-labelledby="hero-title">
-          <div>
-            <p class="panel-label">Overview</p>
-            <h2 id="hero-title">Keep the next Hermes action in view.</h2>
-            <p class="panel-copy">
-              This first-pass cockpit is intentionally framework-free so it can
-              run anywhere and stay easy to extend.
-            </p>
-          </div>
-          <div class="hero-meta">
-            <div>
-              <span class="meta-label">Mode</span>
-              <strong>Planning</strong>
-            </div>
-            <div>
-              <span class="meta-label">Updated</span>
-              <strong id="last-updated">--</strong>
-            </div>
-          </div>
-        </section>
+      <section class="panel hero" aria-labelledby="hero-title">
+        <div>
+          <p class="eyebrow">Overview</p>
+          <h2 id="hero-title">See the current Hermes state at a glance.</h2>
+          <p class="copy">This cockpit reads live data from the local Hermes environment and the kanban database so it shows real system signals instead of placeholders.</p>
+        </div>
+        <div id="summary-grid" class="summary-grid"></div>
+      </section>
 
-        <section class="grid">
-          <article class="panel">
-            <p class="panel-label">Status</p>
-            <h2>Hermes status panel</h2>
-            <ul class="status-list" id="status-list" aria-live="polite"></ul>
-          </article>
+      <section class="grid">
+        <article class="panel">
+          <p class="eyebrow">Signals</p>
+          <h2>Live Hermes signals</h2>
+          <div id="signal-grid" class="signal-grid"></div>
+        </article>
+        <article class="panel">
+          <p class="eyebrow">Kanban</p>
+          <h2>Task queue snapshot</h2>
+          <div id="count-grid" class="count-grid"></div>
+          <div id="activity" class="activity"></div>
+        </article>
+      </section>
 
-          <article class="panel">
-            <p class="panel-label">Shortcuts</p>
-            <h2>Common actions</h2>
-            <div class="action-list" id="action-list"></div>
-          </article>
-        </section>
-      </main>
-    </div>
+      <section class="panel">
+        <p class="eyebrow">Source notes</p>
+        <h2>How this panel stays live</h2>
+        <ul id="notes" class="notes"></ul>
+      </section>
+    </main>
   </body>
 </html>
