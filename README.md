@@ -37,8 +37,11 @@ curl -s http://localhost:8000/api/status | python3 -m json.tool
 - `src/styles.css` — layout and visual styling
 - `src/main.js` — live data fetch and panel rendering
 - `scripts/cockpit_server.py` — tiny local server with the live status endpoint
+- `scripts/github_pr_sync.py` — background sync helper that opens GitHub PRs for completed coding tasks
 - `docs/roadmap.md` — near-term product direction
 
 ## Status
 
 The cockpit now renders live Hermes status data and can be refreshed manually from the UI.
+
+When the cockpit server is running, it also polls completed coding tasks and, for any task with a branch, pushes that branch and opens or updates the matching GitHub pull request automatically. The PR body records the Hermes task id, branch, workspace, and completion details for traceability.

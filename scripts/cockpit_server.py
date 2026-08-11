@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'src'
 DB = Path(os.environ.get('HERMES_KANBAN_DB', ROOT / 'kanban.db'))
 
+try:
+    from github_pr_sync import start_background_loop
+except Exception:  # pragma: no cover - optional runtime dependency on the sync helper
+    start_background_loop = None
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -128,6 +133,11 @@ def main() -> int:
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8000)
     args = parser.parse_args()
+    sync_enabled = os.environ.get('HERMES_ENABLE_GITHUB_PR_SYNC', '1').lower() not in {'0', 'false', 'no'}
+    sync_interval = int(os.environ.get('HERMES_GITHUB_PR_SYNC_INTERVAL', '60'))
+    sync_loop = None
+    if sync_enabled and start_background_loop is not None:
+        sync_loop = start_background_loop(True, sync_interval)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f'Serving Hermes cockpit from {SRC} on http://{args.host}:{args.port}')
     try:
@@ -135,6 +145,8 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        if sync_loop is not None:
+            sync_loop.stop()
         server.server_close()
     return 0
 
