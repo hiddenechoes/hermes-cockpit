@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import http.server
-import importlib.util
 import json
 import os
 import sqlite3
@@ -9,142 +7,100 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from urllib import error, request
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / 'scripts' / 'cockpit_server.py'
+import sys
 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-class StatusHandler(http.server.BaseHTTPRequestHandler):
-    response_body = b''
-
-    def do_GET(self):
-        if self.path == '/api/status':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(self.response_body)))
-            self.end_headers()
-            self.wfile.write(self.response_body)
-            return
-        self.send_error(404)
-
-    def log_message(self, format: str, *args) -> None:  # noqa: A003 - stdlib callback name
-        return
-
-
-def make_temp_db(path: Path) -> None:
-    conn = sqlite3.connect(path)
-    try:
-        conn.executescript(
-            """
-            CREATE TABLE tasks (
-                id TEXT,
-                title TEXT,
-                assignee TEXT,
-                status TEXT,
-                priority INTEGER,
-                started_at TEXT,
-                last_heartbeat_at TEXT,
-                current_run_id INTEGER,
-                created_at TEXT
-            );
-            CREATE TABLE task_runs (
-                task_id TEXT,
-                profile TEXT,
-                summary TEXT,
-                started_at TEXT,
-                ended_at TEXT,
-                outcome TEXT,
-                status TEXT,
-                error TEXT
-            );
-            """
-        )
-        conn.executemany(
-            'INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                ('t_running', 'Running task', 'coder', 'running', 20, '2026-01-02T03:04:05+00:00', None, 1, '2026-01-02T03:04:05+00:00'),
-                ('t_todo', 'Queued task', 'coder', 'todo', 10, None, None, None, '2026-01-02T03:00:00+00:00'),
-                ('t_done', 'Completed task', 'coder', 'done', 5, None, None, None, '2026-01-01T01:00:00+00:00'),
-            ],
-        )
-        conn.executemany(
-            'INSERT INTO task_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                ('t_done', 'coder', 'Finished successfully', '2026-01-01T01:00:00+00:00', '2026-01-01T01:01:00+00:00', 'completed', 'done', None),
-                ('t_running', 'coder', 'Still running', '2026-01-02T03:04:05+00:00', None, 'running', 'running', ''),
-                ('t_broken', 'coder', 'Failed run', '2026-01-01T02:00:00+00:00', '2026-01-01T02:01:00+00:00', 'failed', 'done', 'boom'),
-            ],
-        )
-        conn.commit()
-    finally:
-        conn.close()
+from scripts import cockpit_server
 
 
 class CockpitServerTests(unittest.TestCase):
-    def load_module(self, db_path: Path):
-        spec = importlib.util.spec_from_file_location('cockpit_server_test', MODULE_PATH)
-        assert spec is not None
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-        return module
+    def setUp(self) -> None:
+        self._env = os.environ.get('HERMES_KANBAN_DB')
 
-    def test_remote_status_source_avoids_local_hermes_binary(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            db_path = tmp_path / 'kanban.db'
-            make_temp_db(db_path)
+    def tearDown(self) -> None:
+        if self._env is None:
+            os.environ.pop('HERMES_KANBAN_DB', None)
+        else:
+            os.environ['HERMES_KANBAN_DB'] = self._env
 
-            StatusHandler.response_body = json.dumps({'gateway_status': 'running'}).encode('utf-8')
-            server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), StatusHandler)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            try:
-                with patch.dict(
-                    os.environ,
-                    {
-                        'HERMES_KANBAN_DB': str(db_path),
-                        'HERMES_PROFILE': 'coder',
-                        'HERMES_AGENT_BASE_URL': f'http://127.0.0.1:{server.server_port}',
-                    },
-                    clear=False,
-                ):
-                    module = self.load_module(db_path)
-                    with patch.object(module, 'run_status', side_effect=AssertionError('local hermes binary should not be used')):
-                        payload = module.build_payload()
-            finally:
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=5)
+    def test_read_kanban_raises_clear_error_for_missing_db_path(self) -> None:
+        os.environ['HERMES_KANBAN_DB'] = '/tmp/no-such-dir/subdir/kanban.db'
 
-            self.assertTrue(payload['service_running'])
-            self.assertEqual(payload['kanban']['counts']['running'], 1)
-            self.assertEqual(payload['kanban']['counts']['todo'], 1)
-            self.assertEqual(payload['kanban']['counts']['done'], 1)
-            self.assertIn('Status reads from http://127.0.0.1', ' '.join(payload['notes']))
+        with self.assertRaises(RuntimeError) as cm:
+            cockpit_server.read_kanban()
 
-    def test_remote_gateway_parser_accepts_nested_status_shapes(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            db_path = tmp_path / 'kanban.db'
-            make_temp_db(db_path)
-            with patch.dict(os.environ, {'HERMES_KANBAN_DB': str(db_path), 'HERMES_PROFILE': 'coder'}, clear=False):
-                module = self.load_module(db_path)
-        self.assertTrue(module.remote_gateway_running({'gateway': {'status': 'running'}}))
-        self.assertFalse(module.remote_gateway_running({'gateway': {'running': False}}))
-        self.assertTrue(module.remote_gateway_running({'gateway_status': 'healthy'}))
-        self.assertIsNone(module.remote_gateway_running({'auth_required': True}))
+        message = str(cm.exception)
+        self.assertIn('/tmp/no-such-dir/subdir/kanban.db', message)
+        self.assertIn('inside this cockpit container', message)
 
-    def test_local_status_fallback_still_works(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            db_path = tmp_path / 'kanban.db'
-            make_temp_db(db_path)
-            with patch.dict(os.environ, {'HERMES_KANBAN_DB': str(db_path), 'HERMES_PROFILE': 'coder'}, clear=False):
-                module = self.load_module(db_path)
-            setattr(module, 'run_status', lambda: 'Gateway Service\nStatus: running\n')
-            self.assertTrue(module.service_running())
+    def test_read_kanban_reads_valid_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / 'kanban.db'
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                '''
+                CREATE TABLE tasks (
+                    id TEXT,
+                    title TEXT,
+                    assignee TEXT,
+                    status TEXT,
+                    priority INTEGER,
+                    started_at INTEGER,
+                    last_heartbeat_at INTEGER,
+                    current_run_id INTEGER,
+                    created_at INTEGER
+                );
+                CREATE TABLE task_runs (
+                    task_id TEXT,
+                    profile TEXT,
+                    summary TEXT,
+                    started_at INTEGER,
+                    ended_at INTEGER,
+                    outcome TEXT,
+                    status TEXT,
+                    error TEXT
+                );
+                INSERT INTO tasks (id, title, assignee, status, priority, started_at, last_heartbeat_at, current_run_id, created_at)
+                VALUES ('t1', 'Example task', 'coder', 'running', 10, 100, 110, 1, 90);
+                INSERT INTO task_runs (task_id, profile, summary, started_at, ended_at, outcome, status, error)
+                VALUES ('t1', 'coder', 'Completed example task', 100, 120, 'completed', 'done', NULL);
+                '''
+            )
+            conn.commit()
+            conn.close()
+
+            os.environ['HERMES_KANBAN_DB'] = str(db_path)
+            payload = cockpit_server.read_kanban()
+
+        self.assertEqual(payload['counts']['running'], 1)
+        self.assertEqual(payload['running_task']['id'], 't1')
+        self.assertEqual(payload['last_success']['task_id'], 't1')
+        self.assertIsNone(payload['last_error'])
+
+    def test_status_endpoint_returns_json_error_instead_of_crashing(self) -> None:
+        os.environ['HERMES_KANBAN_DB'] = '/tmp/no-such-dir/subdir/kanban.db'
+        server = cockpit_server.ThreadingHTTPServer(('127.0.0.1', 0), cockpit_server.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            url = f'http://127.0.0.1:{server.server_address[1]}/api/status'
+            with self.assertRaises(error.HTTPError) as cm:
+                request.urlopen(url, timeout=5)
+
+            self.assertEqual(cm.exception.code, 500)
+            body = json.loads(cm.exception.read().decode('utf-8'))
+            self.assertFalse(body['ok'])
+            self.assertIn('/tmp/no-such-dir/subdir/kanban.db', body['error'])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
 if __name__ == '__main__':

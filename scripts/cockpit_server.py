@@ -15,7 +15,11 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'src'
-DB = Path(os.environ.get('HERMES_KANBAN_DB', ROOT / 'kanban.db'))
+
+
+def kanban_db_path() -> Path:
+    raw = os.environ.get('HERMES_KANBAN_DB')
+    return Path(raw).expanduser() if raw else ROOT / 'kanban.db'
 
 
 def remote_agent_base_url() -> str:
@@ -97,31 +101,50 @@ def service_running() -> bool:
 
 
 def read_kanban() -> dict:
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    counts = {row['status']: row['count'] for row in cur.execute('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status')}
-    running = cur.execute("""
-        SELECT id, title, assignee, started_at, last_heartbeat_at, current_run_id
-        FROM tasks
-        WHERE status = 'running'
-        ORDER BY priority DESC, started_at ASC, created_at ASC
-        LIMIT 1
-    """).fetchone()
-    success = cur.execute("""
-        SELECT task_id, profile, summary, started_at, ended_at
-        FROM task_runs
-        WHERE outcome = 'completed' OR status = 'done'
-        ORDER BY COALESCE(ended_at, started_at) DESC
-        LIMIT 1
-    """).fetchone()
-    error = cur.execute("""
-        SELECT task_id, profile, error, summary, started_at, ended_at
-        FROM task_runs
-        WHERE error IS NOT NULL AND trim(error) != ''
-        ORDER BY COALESCE(ended_at, started_at) DESC
-        LIMIT 1
-    """).fetchone()
+    db_path = kanban_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.OperationalError as exc:
+        raise RuntimeError(
+            f'Unable to open kanban database at {db_path}: {exc}. '
+            'Make sure HERMES_KANBAN_DB points to a readable SQLite file '
+            'inside this cockpit container, and that its parent directory is '
+            'mounted and accessible.'
+        ) from exc
+
+    with conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            counts = {row['status']: row['count'] for row in cur.execute('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status')}
+            running = cur.execute("""
+                SELECT id, title, assignee, started_at, last_heartbeat_at, current_run_id
+                FROM tasks
+                WHERE status = 'running'
+                ORDER BY priority DESC, started_at ASC, created_at ASC
+                LIMIT 1
+            """).fetchone()
+            success = cur.execute("""
+                SELECT task_id, profile, summary, started_at, ended_at
+                FROM task_runs
+                WHERE outcome = 'completed' OR status = 'done'
+                ORDER BY COALESCE(ended_at, started_at) DESC
+                LIMIT 1
+            """).fetchone()
+            error = cur.execute("""
+                SELECT task_id, profile, error, summary, started_at, ended_at
+                FROM task_runs
+                WHERE error IS NOT NULL AND trim(error) != ''
+                ORDER BY COALESCE(ended_at, started_at) DESC
+                LIMIT 1
+            """).fetchone()
+        except sqlite3.OperationalError as exc:
+            raise RuntimeError(
+                f'Unable to read kanban database at {db_path}: {exc}. '
+                'Verify that the cockpit can see the expected kanban DB path '
+                'and that it contains the tasks/task_runs tables.'
+            ) from exc
+
     return {
         'counts': counts,
         'running_task': dict(running) if running else None,
@@ -158,9 +181,18 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == '/api/status':
-            payload = build_payload()
+            try:
+                payload = build_payload()
+                status = 200
+            except Exception as exc:
+                payload = {
+                    'ok': False,
+                    'generated_at': now_iso(),
+                    'error': str(exc),
+                }
+                status = 500
             body = json.dumps(payload, indent=2, sort_keys=True).encode('utf-8')
-            self.send_response(200)
+            self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Cache-Control', 'no-store')
             self.send_header('Content-Length', str(len(body)))
