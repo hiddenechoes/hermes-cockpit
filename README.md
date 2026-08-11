@@ -20,6 +20,18 @@ Then open http://localhost:8000 in your browser.
 
 The server also exposes a JSON endpoint at `http://localhost:8000/api/status` that the cockpit uses to populate the live panel.
 
+## Remote Hermes Agent target
+
+If you want the cockpit to read status from a Hermes Agent running in Docker on another host, set both the agent endpoint and the kanban database path before starting the server:
+
+```bash
+HERMES_AGENT_BASE_URL=http://UNRAID_HOST:9119 \
+HERMES_KANBAN_DB=/path/to/shared/kanban.db \
+python3 scripts/cockpit_server.py --port 8000
+```
+
+That keeps the cockpit pointed at the remote Hermes Agent for live status while still reading the shared kanban database from disk.
+
 ## Verify
 
 1. Start the cockpit server.
