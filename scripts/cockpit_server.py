@@ -101,50 +101,46 @@ def service_running() -> bool:
 
 
 def read_kanban() -> dict:
-    db_path = kanban_db_path()
+    conn = None
     try:
-        conn = sqlite3.connect(db_path)
-    except sqlite3.OperationalError as exc:
-        raise RuntimeError(
-            f'Unable to open kanban database at {db_path}: {exc}. '
-            'Make sure HERMES_KANBAN_DB points to a readable SQLite file '
-            'inside this cockpit container, and that its parent directory is '
-            'mounted and accessible.'
-        ) from exc
-
-    with conn:
+        conn = sqlite3.connect(DB)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        counts = {row['status']: row['count'] for row in cur.execute('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status')}
+        running = cur.execute("""
+            SELECT id, title, assignee, started_at, last_heartbeat_at, current_run_id
+            FROM tasks
+            WHERE status = 'running'
+            ORDER BY priority DESC, started_at ASC, created_at ASC
+            LIMIT 1
+        """).fetchone()
+        success = cur.execute("""
+            SELECT task_id, profile, summary, started_at, ended_at
+            FROM task_runs
+            WHERE outcome = 'completed' OR status = 'done'
+            ORDER BY COALESCE(ended_at, started_at) DESC
+            LIMIT 1
+        """).fetchone()
+        error = cur.execute("""
+            SELECT task_id, profile, error, summary, started_at, ended_at
+            FROM task_runs
+            WHERE error IS NOT NULL AND trim(error) != ''
+            ORDER BY COALESCE(ended_at, started_at) DESC
+            LIMIT 1
+        """).fetchone()
+    except sqlite3.Error:
+        return {
+            'counts': {},
+            'running_task': None,
+            'last_success': None,
+            'last_error': None,
+        }
+    finally:
         try:
-            counts = {row['status']: row['count'] for row in cur.execute('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status')}
-            running = cur.execute("""
-                SELECT id, title, assignee, started_at, last_heartbeat_at, current_run_id
-                FROM tasks
-                WHERE status = 'running'
-                ORDER BY priority DESC, started_at ASC, created_at ASC
-                LIMIT 1
-            """).fetchone()
-            success = cur.execute("""
-                SELECT task_id, profile, summary, started_at, ended_at
-                FROM task_runs
-                WHERE outcome = 'completed' OR status = 'done'
-                ORDER BY COALESCE(ended_at, started_at) DESC
-                LIMIT 1
-            """).fetchone()
-            error = cur.execute("""
-                SELECT task_id, profile, error, summary, started_at, ended_at
-                FROM task_runs
-                WHERE error IS NOT NULL AND trim(error) != ''
-                ORDER BY COALESCE(ended_at, started_at) DESC
-                LIMIT 1
-            """).fetchone()
-        except sqlite3.OperationalError as exc:
-            raise RuntimeError(
-                f'Unable to read kanban database at {db_path}: {exc}. '
-                'Verify that the cockpit can see the expected kanban DB path '
-                'and that it contains the tasks/task_runs tables.'
-            ) from exc
-
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
     return {
         'counts': counts,
         'running_task': dict(running) if running else None,
